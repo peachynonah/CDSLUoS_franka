@@ -1,0 +1,69 @@
+# ===============================
+# libfranka / CMake / C++ project
+# ===============================
+
+# --- CMake / Ninja (any depth) ---
+**/build/
+**/build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+**/compile_commands.json
+**/build.ninja
+**/.ninja_log
+**/.ninja_deps
+
+# --- Tests & googletest (any depth) ---
+**/test/
+**/googletest*/
+**/googletest-download/
+
+# --- Known libfranka example outputs (safe to ignore anywhere) ---
+**/Franka*Config*.cmake
+**/examples/
+**/common/
+
+# --- Binaries / Objects ---
+**/*.o
+**/*.obj
+**/*.a
+**/*.la
+**/*.lo
+**/*.so
+**/*.so.*
+**/*.dylib
+**/*.dll
+**/*.exe
+**/*.out
+**/*.bin
+**/*.run
+**/*.dSYM/
+core
+
+# --- Sanitizer builds / runners (catch your offenders) ---
+**/*asan*
+**/*ubsan*
+**/run_all_tests_asan
+**/run_all_tests_ubsan
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Logs / Cache ---
+*.log
+.cache/
+.clangd/
+
+
+# 실행 파일 및 빌드 폴더 무시
+build/
+*.o
+*.so
+*.exe
+run_all_tests_*
