@@ -21,7 +21,7 @@
 
 # --- Known libfranka example outputs (safe to ignore anywhere) ---
 **/Franka*Config*.cmake
-**/examples/
+# **/examples/
 **/common/
 
 # --- Binaries / Objects ---
