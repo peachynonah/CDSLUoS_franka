@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 
 # 파일 경로 설정 (데이터가 저장된 파일명으로 변경하세요)
 # file_path = "/home/cdsl/libfranka/a2_data/sim6/quintic/qp11.txt"
-file_path = "/home/cdsl/libfranka/a2_data/sim5/scurve/pd6.txt"
+file_path = "/home/cdsl/libfranka/3dof_sim1/qp8.txt"
 
 # 데이터를 저장할 리스트 초기화
 t_data = []

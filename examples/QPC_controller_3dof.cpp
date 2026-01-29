@@ -57,7 +57,8 @@ int main(int argc, char** argv) {
 
 //task control PD gain
   double Kp{900.0};
-  double Kd{1.5*900.0};
+  // double Kd{1.5*900.0};
+  double Kd{200.0};
 
   // ==============================================================================
   // Open file (기존 데이터 파일)
@@ -111,7 +112,7 @@ int main(int argc, char** argv) {
     double velocity_d = 0;
     Eigen::Quaterniond orientation_d = init_orientation; //(m=1인 상황이므로 사실상 자세제어는 없음)
 
-    Eigen::VectorXd dq_3(7);
+    Eigen::VectorXd dq_3(3);
 
     double uhat_force = 0;
     double uhat_update;
@@ -153,7 +154,7 @@ int main(int argc, char** argv) {
 
   // 인덱스 정의
     std::vector<int> idx_lock   = {0, 2, 4, 6}; // 고정할 관절 (1, 3, 5, 7번 joint)
-    std::vector<int> idx_active = {1, 3, 7};    // 제어할 관절 (2, 4, 6번 joint)
+    std::vector<int> idx_active = {1, 3, 5};    // 제어할 관절 (2, 4, 6번 joint)
 
     std::array<double, 49> mass_array_init = model.mass(initial_state);
     Eigen::Map<const Eigen::Matrix<double, 7, 7>> M_bar_map(mass_array_init.data());
@@ -244,16 +245,23 @@ int main(int argc, char** argv) {
       Eigen::Matrix<double, 3, 1> J_inv = M_bar_inv * jacobian_3.transpose() * lambda;
       double M_task = (J_inv.transpose() * M_bar * J_inv).value();
       double M_task_inv = 1/M_task;
-      Eigen::Matrix<double, 3, 1> V_ = generalizedCrossProduct(jacobian_3);
-      double M_null = V_.transpose() * M_bar * V_;
-      double M_null_inv = 1/M_null;
-      Eigen::Matrix<double, 1, 3> J_N = M_null_inv * (V_.transpose() * M_bar);
+
+      // Eigen::Matrix<double, 3, 2> V_ = generalizedCrossProduct(jacobian_3);
+
+      // 1. Eigen 라이브러리의 kernel() 함수를 사용해 Null Space Basis(3x2)를 바로 구합니다.
+      Eigen::MatrixXd V_temp = jacobian_3.fullPivLu().kernel();
+      // 2. 구한 값을 3x2 행렬에 담습니다. (V_temp가 3x2가 되므로 안전하게 들어갑니다)
+      Eigen::Matrix<double, 3, 2> V_ = V_temp;
+
+      Eigen::Matrix<double, 2, 2> M_null = (V_.transpose() * M_bar * V_);
+      Eigen::Matrix<double, 2, 2> M_null_inv = M_null.inverse();
+      Eigen::Matrix<double, 2, 3> J_N = M_null_inv * (V_.transpose() * M_bar);
 
       Eigen::Matrix<double, 3, 3> NullProj = Eigen::Matrix<double, 3, 3>::Identity() - (J_inv * jacobian_3);
       Eigen::Matrix<double, 3, 1> K0;
-      K0.setConstant(0.1);
+      K0.setConstant(0.5);
       Eigen::Matrix<double, 3, 1> v0 = K0.asDiagonal() * dq_3;
-      double f_N = J_N * v0;
+      Eigen::Matrix<double, 2, 1> f_N = J_N * v0;
 
       // [측정 포인트 3] 필터링 시작
       auto t_p3 = std::chrono::steady_clock::now();
@@ -300,8 +308,8 @@ int main(int argc, char** argv) {
 
       tau_pd_total = - pd_Kp*joint_error - pd_Kd*joint_error_dot;
       tau_pd = tau_pd_total;
-      for (int i : idx_lock) {
-          tau_pd(i) = 0.0;// (2, 4, 6번째 토크만 적용..)
+      for (int i : idx_active) {
+          tau_pd(i) = 0.0;// (1, 3, 5번째 토크는 제외)
       }
 
       // [측정 포인트 5] 제어(QP) 시작
@@ -320,7 +328,7 @@ int main(int argc, char** argv) {
       double OuterloopForce = -Kp * error - Kd * error_dot;
 
       Eigen::Matrix<double, 3, 3> P = 2.0 * (J_inv * J_inv.transpose() + V_ * V_.transpose());
-      Eigen::Matrix<double, 3, 1> q_qp = -2.0 * (J_inv * M_task * (position_Xddot - uhat_force)) - 2.0 * (f_N * V_);
+      Eigen::Matrix<double, 3, 1> q_qp = -2.0 * (J_inv * M_task * (position_Xddot - uhat_force)) - 2.0 * (V_*f_N);
       
       Eigen::Matrix<double, 3, 1> bound;
       // bound << 87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0;
@@ -345,19 +353,22 @@ int main(int argc, char** argv) {
       Eigen::VectorXd tau_d2(7);
 
       tau_d2 = tau_pd + tau_qp; // 최종 목표
-
-      tau_d = tau_pd_total;  // pd만 실험(제자리 유지)
+      // tau_d = tau_pd_total;  // pd만 실험(제자리 유지)
+      tau_d = tau_d2;
 
       // -----------------------------------------------------------------------
       // 터미널 상에 출력
       // -----------------------------------------------------------------------
+/*
       time_print_timer += duration.toSec(); // 지난 시간을 계속 더함
     if (time_print_timer >= 2.0) {
         std::cout << "================ [Time: " << time << "s] ================" << std::endl;
         
         // 1. 현재 입력 토크 (tau_cmd)
         std::cout << "tau_pd (Total): " << tau_pd_total.transpose() << std::endl;
-        std::cout << "tau_qp (Total): " << tau_d2.transpose() << std::endl;
+        std::cout << "tau_pd (Part): " << tau_pd.transpose() << std::endl;        
+        std::cout << "tau_qp (Part): " << tau_qp.transpose() << std::endl;        
+        std::cout << "tau_qp+pd (Proposed): " << tau_d2.transpose() << std::endl;
 
         // 2. 현재 Z축 위치 (제어가 잘 되는지 확인용)
         // std::cout << "Current Z Pos: " << target.position(2) << std::endl;
@@ -365,7 +376,7 @@ int main(int argc, char** argv) {
         // 타이머 초기화 (다시 0부터 셈)
         time_print_timer = 0.0;
     }
-
+*/
       
       // [측정 종료] 전체 루프 종료
       auto end_total = std::chrono::steady_clock::now();
@@ -392,8 +403,7 @@ int main(int argc, char** argv) {
       // -----------------------------------------------------------------------
       myfile << time << " "
             << position[0] << " " << position[1] << " " << position[2] << " "
-            << position_d << " "
-            // << " " << position_d[1] << " " << position_d[2] << " "
+            << 0 << " " << 0 << " " << position_d << " " //z축 레퍼런스만 들어감.
             << current_velocity_display[0] << " " << current_velocity_display[1] << " " << current_velocity_display[2] << " "
             << orientation.x() << " " << orientation.y() << " " << orientation.z() << " "
             << orientation_d.x() << " " << orientation_d.y() << " " << orientation_d.z() << " "
@@ -446,7 +456,7 @@ double calculate_lowpass_filter(double input, double& prev, double time_constant
 Eigen::VectorXd generalizedCrossProduct(const Eigen::Matrix<double, 1, 3>& matrix) {
   Eigen::VectorXd result(3);
   for (int i = 0; i < 3; ++i) {
-    Eigen::Matrix<double, 1, 1> subMatrix;
+    Eigen::Matrix<double, 1, 2> subMatrix;
     int col = 0;
     for (int j = 0; j < 3; ++j) {
       if (i == j) continue;

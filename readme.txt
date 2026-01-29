@@ -27,7 +27,6 @@
 4. 전체 통합하기
 
 
-
 (saturation: -0.01~0.01)
 2번 시뮬 : // position_target << 0.3, 0.005, 0.5; : 5차 다항식
 3번 시뮬 : position_target << 0.3, 0.005, 0.65; : 5차 다항식
@@ -39,4 +38,13 @@
 5번 시뮬 :3번에서 gain, 목표지점 바꾸기
 FL: 
 
+------------------------------------------
+// git ignore 반영이 안된 경우 해결방법
+git rm -r --cached .  # 현재 담긴 파일 목록 초기화 (파일은 안 지워짐)
+git add .             # .gitignore 규칙대로 다시 담기
+git commit -m "Apply gitignore"
+git push -f origin main
 
+
+------------------------------------------
+./QPC_controller 172.16.0.2 /home/cdsl/libfranka/3dof_sim1/pd1.txt

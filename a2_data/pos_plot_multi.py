@@ -6,6 +6,8 @@ import os
 # ==========================================
 
 # 데이터 파일들이 있는 기본 폴더 경로
+# base_directory = "/home/cdsl/libfranka/a2_data/sim6/quintic/"
+
 base_directory = "/home/cdsl/libfranka/a2_data/sim6/quintic/"
 
 # Plot하고 싶은 파일명들을 리스트에 추가하세요 (원하는 만큼 추가 가능)
