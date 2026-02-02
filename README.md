@@ -16,7 +16,9 @@ Implemented theories:
 ### Sigmoid CLBF
 
 A-1. 먼저, refactoring한 코드가 작동되는지 확인하기..
+
 A-2. RPY 기반 orientation 좌표가 출력되는지 확인하기..
+
 A-3. RPY 기반 error가 출력되는지 확인하기..
 
 
