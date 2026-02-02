@@ -8,6 +8,6 @@ Language: C++
 
 Implemented theories: 
 
-  - Yesol: QPC
-  - Haechan: Sigmoid CLBF
+  - ('26 Spring) Yesol: QPC
+  - ('26 Spring) Haechan: Sigmoid CLBF
    
