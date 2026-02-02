@@ -54,7 +54,6 @@ int main(int argc, char** argv) {
     setDefaultBehavior(robot);
     // load the kinematics and dynamics model
     franka::Model model = robot.loadModel();
-
     franka::RobotState initial_state = robot.readOnce();
 
     // equilibrium point is the initial position
@@ -109,6 +108,8 @@ int main(int argc, char** argv) {
       Eigen::Vector3d position(transform.translation());
       Eigen::Quaterniond orientation(transform.linear());
 
+      Eigen::Vector3d body_ypr = transform.linear().eulerAngles(2,1,0);
+
       //Jacobian pseudoinverse
       Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
       Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
@@ -143,10 +144,6 @@ int main(int argc, char** argv) {
       // compute control
       Eigen::VectorXd tau_task(7), tau_temp(7), tau_d(7), force_FL(6), force_CLBF(6), asafe(6);
 
-      // // Spring damper system with damping ratio=1
-      // tau_task << jacobian.transpose() * (-stiffness * error - damping * (jacobian * dq));
-      // tau_d << tau_task + coriolis;
-
       Eigen::Matrix<double, 2, 2> Q_matrix_z, P_matrix_z;
       Q_matrix_z << 1.0, 0.3,
                     0.3, 1.0; 
@@ -178,6 +175,9 @@ int main(int argc, char** argv) {
         std::cout << error(2) << " ";
         std::cout << std::endl;
 
+        std::cout << "body_ypr [rad] = "
+          << body_ypr.transpose() << std::endl;
+
         print_time = 0.0;
       }
       // -----------------------------
@@ -199,11 +199,8 @@ int main(int argc, char** argv) {
           if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
       }
       
-      // tau_temp << jacobian.transpose() * lambda * (-stiffness * error - damping * error_vel); //  + asafe);
-      // tau_d << tau_temp + coriolis;
-
-      // tau_d << jacobian.transpose() * (force_FL); 
-      tau_d << jacobian.transpose() * (force_FL + force_CLBF);
+      tau_d << jacobian.transpose() * (force_FL); 
+      // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
 
       // File to store the states and force
       for (int i = 0; i < 16; i++){
