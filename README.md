@@ -25,11 +25,16 @@ C-1. Fire monitor control 시 사용했던 Reference Generator를 library화하�
 
 C-2. 생성한 reference generator로 CLBF 코드의 reference를 생성 
 
-**WIP**
+
+**현재 문제점 및 논의사항**
+
+본 repo의 issue 탭을 확인해주세요.
+
+
+**다음에 할것**
 
 B-1. EE body RPY를 base frame RPY로 바꾸기
 
 B-2. 각속도 기반의 Jacobian을 base frame RPY 기반 Jacobian으로 바꾸기.. (교재의 변환 참조)
 
-**논의사항**
 
