@@ -21,6 +21,10 @@ A-1. 먼저, refactoring한 코드가 작동되는지 확인하기..
 
 A-2. RPY 기반 orientation 좌표가 출력되는지 확인하기..
 
+C-1. Fire monitor control 시 사용했던 Reference Generator를 library화하여 코드에 반영
+
+C-2. 생성한 reference generator로 CLBF 코드의 reference를 생성 
+
 **WIP**
 
 B-1. EE body RPY를 base frame RPY로 바꾸기
@@ -29,8 +33,3 @@ B-2. 각속도 기반의 Jacobian을 base frame RPY 기반 Jacobian으로 바꾸
 
 **논의사항**
 
-C-1. FL 제어 자체가 position에서부터 너무 구리게 (...) 된다. gain을 높이면 더 잘 따라가는게 아니고, 더 크게 요동친다..
-
-해결책 1) 현재는 레퍼런스가 충분히 느리다는 가정 하에 가속도 값을 0으로 넣고 있는데(libfranka에서 사용되던 방식), LPF 근사를 통한 가속도를 사용하기.
-
-해결책 2) 모르겠는데..
