@@ -12,10 +12,17 @@
 #include <franka/exception.h>
 #include <franka/model.h>
 #include <franka/robot.h>
-
 #include "examples_common.h"
 
 #include "sigmoid_clbf/sigmoid_clbf.h"
+#include "ref_gen/ReferenceGenerator.h"
+
+ReferenceGenerator ref_crt_x;
+ReferenceGenerator ref_crt_y;
+ReferenceGenerator ref_crt_z;
+
+double time_ref_start_ = 0.0;
+double time_ref_fin_ = 10.0;
 
 int main(int argc, char** argv) {
   // Check whether the required arguments were passed
@@ -37,17 +44,23 @@ int main(int argc, char** argv) {
   //                                    Eigen::MatrixXd::Identity(3, 3);
 
   damping.topLeftCorner(3, 3) << 0.5 * Eigen::MatrixXd::Identity(3, 3);
-
-  damping.bottomRightCorner(3, 3) << 2.0 * sqrt(rotational_stiffness) *
-                                         Eigen::MatrixXd::Identity(3, 3);
+  damping.bottomRightCorner(3, 3) << 2.0 * sqrt(rotational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
 
   // Initialize file_ hcpyon
-  std::ofstream myfile; //
-  // std::string base_dir = "/home/libfranka/hc_data/";
-  // std::string filename = argv[2];
-  // std::string full_path = base_dir + filename;
-  myfile.open(argv[2], std::ios::out); // hcpyon
+  std::ofstream myfile;
+  myfile.open(argv[2], std::ios::out);
   
+  myfile <<
+  "O_T_EE_00 O_T_EE_01 O_T_EE_02 O_T_EE_03 "
+  "O_T_EE_04 O_T_EE_05 O_T_EE_06 O_T_EE_07 "
+  "O_T_EE_08 O_T_EE_09 O_T_EE_10 O_T_EE_11 "
+  "O_T_EE_12 O_T_EE_13 O_T_EE_14 O_T_EE_15 "
+  "F_FL_x F_FL_y F_FL_z F_FL_rx F_FL_ry F_FL_rz "
+  "F_CLBF_x F_CLBF_y F_CLBF_z F_CLBF_rx F_CLBF_ry F_CLBF_rz "
+  "pos_des_x pos_des_y pos_des_z "
+  "vel_des_x vel_des_y vel_des_z "
+  "acc_des_x acc_des_y acc_des_z\n"; // if output data of csv is modified, then this part should also be modified. 
+
   try {
     // connect to robot
     franka::Robot robot(argv[1]);
@@ -60,7 +73,7 @@ int main(int argc, char** argv) {
     Eigen::Affine3d initial_transform(Eigen::Matrix4d::Map(initial_state.O_T_EE.data()));
     //Eigen::Vector3d position_d(initial_transform.translation());
     Eigen::Vector3d init_position(initial_transform.translation());//hcpyon
-    Eigen::Vector3d position_d = init_position; //hcpyon
+    // Eigen::Vector3d position_d = init_position; //hcpyon
     Eigen::Quaterniond orientation_d(initial_transform.linear());
 
     // Set collision behavior: from Cartesian pose controller
@@ -70,9 +83,9 @@ int main(int argc, char** argv) {
         {{20.0, 20.0, 20.0, 25.0, 25.0, 25.0}}, {{20.0, 20.0, 20.0, 25.0, 25.0, 25.0}},
         {{20.0, 20.0, 20.0, 25.0, 25.0, 25.0}}, {{20.0, 20.0, 20.0, 25.0, 25.0, 25.0}});
     
-    double time = 0.0; // hcpyon
-    static double print_time = 0.0; // hcpyon
-    int rt_violation_count = 0; // hcpyon
+    double time = 0.0; 
+    static double print_time = 0.0; 
+    int rt_violation_count = 0;
     static const double dt_threshold = 0.002;  // 2 ms
 
     // define callback for the torque control loop
@@ -117,17 +130,65 @@ int main(int argc, char** argv) {
       
       // position tracking reference
       constexpr double kRadius = 0.3;
-      double angle = M_PI / 4 * (1 - std::cos(M_PI / 5.0 * time));
-      double dx_trk = kRadius * std::sin(angle);
-      double dz_trk = kRadius * (std::cos(angle) - 1);
+      // double angle = M_PI / 4 * (1 - std::cos(M_PI / 5.0 * time));
+      // double dx_trk = kRadius * std::sin(angle);
+      // double dz_trk = kRadius * (std::cos(angle) - 1);
 
-      position_d = init_position + Eigen::Vector3d(dx_trk, 0.0, dz_trk); //; 
+      // position_d = init_position + Eigen::Vector3d(dx_trk, 0.0, dz_trk); //; 
+
+      Eigen::Matrix<double, 6, 1> crt_vel_eig; crt_vel_eig << jacobian * dq;
+
+      std::array<double, 6> crt_vel_std;
+      for (int i = 0; i < 6; ++i) {
+        crt_vel_std[i] = crt_vel_eig(i);
+      }
+
+      //reference generator
+      std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
+
+      std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
+      std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
+      
+      std::array<double, 3> start_state_y = {init_position[1], 0.0, 0.0};
+      std::array<double, 3> final_state_y = {init_position[1] + des_pos_mov[1], 0.0, 0.0};
+      
+      std::array<double, 3> start_state_z = {init_position[2], 0.0, 0.0};
+      std::array<double, 3> final_state_z = {init_position[2] + des_pos_mov[2], 0.0, 0.0};
+
+	    ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
+	    ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
+      ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
+
+      std::array<double, 3> pos_des, pose_dot_des, pose_ddot_des;
+
+      pos_des[0] = ref_crt_x.get_position(time, position[0]);
+      pose_dot_des[0] = ref_crt_x.get_velocity(time, crt_vel_std[0]);
+      pose_ddot_des[0] = ref_crt_x.get_acceleration(time, 0.0);
+
+      pos_des[1] = ref_crt_y.get_position(time, position[1]);
+      pose_dot_des[1] = ref_crt_y.get_velocity(time, crt_vel_std[1]);
+      pose_ddot_des[1] = ref_crt_y.get_acceleration(time, 0.0);
+
+      pos_des[2] = ref_crt_z.get_position(time, position[2]);
+      pose_dot_des[2] = ref_crt_z.get_velocity(time, crt_vel_std[2]);
+      pose_ddot_des[2] = ref_crt_z.get_acceleration(time, 0.0);
+
+      Eigen::Vector3d pos_des_eig, pose_dot_des_eig, pose_ddot_des_eig;
+      pos_des_eig << pos_des[0], pos_des[1], pos_des[2];
+      pose_dot_des_eig << pose_dot_des[0], pose_dot_des[1], pose_dot_des[2];
+      pose_ddot_des_eig << pose_ddot_des[0], pose_ddot_des[1], pose_ddot_des[2];
+
+      Eigen::Matrix<double, 6, 1> error, error_dot;
+      error.head(3) << position - pos_des_eig;
+      error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
+      error_dot.tail(3) << crt_vel_eig.tail(3);
 
       // compute error to desired equilibrium pose
       // position error
-      Eigen::Matrix<double, 6, 1> error, error_vel;
-      error.head(3) << position - position_d;
-      error_vel << jacobian * dq;
+      // Eigen::Matrix<double, 6, 1> error, error_vel;
+      // error.head(3) << position - position_d;
+      
+      // error_vel << jacobian * dq;
       
       // orientation error
       // "difference" quaternion
@@ -144,6 +205,7 @@ int main(int argc, char** argv) {
       // compute control
       Eigen::VectorXd tau_task(7), tau_temp(7), tau_d(7), force_FL(6), force_CLBF(6), asafe(6);
 
+      //////// CLBF Params
       Eigen::Matrix<double, 2, 2> Q_matrix_z, P_matrix_z;
       Q_matrix_z << 1.0, 0.3,
                     0.3, 1.0; 
@@ -151,44 +213,29 @@ int main(int argc, char** argv) {
                      0.1, 1.2;
       Eigen::Matrix<double, 2, 1> state_error_z;
       state_error_z << error(2),
-                       error_vel(2);
+                       error_dot(2);
       
-      double clbf_slope_l_z = 3.0;
-      // double unsafe_d_z = 0.35;
-      double unsafe_d_z = -0.1;
-      double clbf_margin_delta_z = 0.1;
-      double clbf_weight_theta_z = 5.0;
-      // double cart_pos_current_z = position(2);
+      double clbf_slope_l_z = 3.0; double unsafe_d_z = -0.1;
+      double clbf_margin_delta_z = 0.1; double clbf_weight_theta_z = 5.0;
       double cart_pos_current_z = error(2);
       
-      // hcpyon -----------------------------
+     // -- print
       print_time += duration.toSec();
 
       if (print_time > 0.5) {
         std::cout << "=== MODEL VALUES ===" << std::endl;
-
-        std::cout << "Time : ";
-        std::cout << time << " ";
-        std::cout << std::endl;
-
-        std::cout << "Z axis error : ";
-        std::cout << error(2) << " ";
-        std::cout << std::endl;
-
-        std::cout << "body_ypr [rad] = "
-          << body_ypr.transpose() << std::endl;
-
+        std::cout << "Time : "; std::cout << time << " "; std::cout << std::endl;
+        std::cout << "Z axis error : "; std::cout << error(2) << " "; std::cout << std::endl;
+        std::cout << "body_ypr [rad] = " << body_ypr.transpose() << std::endl;
         print_time = 0.0;
       }
-      // -----------------------------
-
-      double asafe_z = getasafe(Q_matrix_z, P_matrix_z, state_error_z, clbf_slope_l_z, unsafe_d_z, clbf_margin_delta_z, clbf_weight_theta_z, cart_pos_current_z);
       
+      // asafe
+      double asafe_z = getasafe(Q_matrix_z, P_matrix_z, state_error_z, clbf_slope_l_z, unsafe_d_z, clbf_margin_delta_z, clbf_weight_theta_z, cart_pos_current_z);
       asafe.setZero();     
       asafe(2) = asafe_z;
-      
       // tau_temp << mass * Jbar * (-stiffness * error + asafe);
-      force_FL << lambda * (-stiffness * error - damping * error_vel) + Jbar.transpose() * coriolis;
+      force_FL << lambda * (-stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis;
       force_CLBF << lambda * asafe;
 
       // Clip force_CLBF
@@ -199,27 +246,23 @@ int main(int argc, char** argv) {
           if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
       }
       
-      tau_d << jacobian.transpose() * (force_FL); 
+      tau_d.setZero();
+      // tau_d << jacobian.transpose() * (force_FL);
       // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
 
       // File to store the states and force
-      for (int i = 0; i < 16; i++){
-          myfile << robot_state.O_T_EE[i] << " ";
-      }
-      for (int i = 0; i < 6; i++) {
-          myfile << force_FL[i] << " ";
-      }
-      for (int i = 0; i < 6; i++) {
-          myfile << force_CLBF[i] << " ";
-      }
-      myfile << '\n'; //hcpyon
+      for (int i = 0; i < 16; i++){myfile << robot_state.O_T_EE[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << force_FL[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << force_CLBF[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << pos_des[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << pose_ddot_des[i] << " ";}
+      myfile << '\n';
 
       std::array<double, 7> tau_d_array{};
       Eigen::VectorXd::Map(&tau_d_array[0], 7) = tau_d;
       return tau_d_array;
     };
-
-
 
     // start real-time control loop
     std::cout << "WARNING: Collision thresholds are set to high values. "

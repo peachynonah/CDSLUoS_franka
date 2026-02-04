@@ -14,13 +14,9 @@ find_package(Poco REQUIRED COMPONENTS Foundation)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-add_library(examples_common STATIC
-  examples_common.cpp
-)
-
-add_library(sigmoid_clbf STATIC
-  hc_CLBFs/sigmoid_clbf/sigmoid_clbf.cpp
-)
+add_library(examples_common STATIC examples_common.cpp)
+add_library(sigmoid_clbf STATIC hc_CLBFs/sigmoid_clbf/sigmoid_clbf.cpp)
+add_library(ref_gen STATIC ref_gen/ReferenceGenerator.cpp)
 
 set(QPOASES_ROOT "/home/cdsl/qpOASES")
 set(QPOASES_INCLUDE_DIR "${QPOASES_ROOT}/include")
@@ -31,6 +27,10 @@ target_include_directories(examples_common PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(sigmoid_clbf PUBLIC Eigen3::Eigen3)
 target_include_directories(sigmoid_clbf PUBLIC ${CMAKE_CURRENT_LIST_DIR}/hc_CLBFs)
+
+target_link_libraries(ref_gen PUBLIC Eigen3::Eigen3)
+target_include_directories(ref_gen PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+
 
 set(EXAMPLES
   cartesian_impedance_control
@@ -78,7 +78,13 @@ endforeach()
 # hc_CLBFs (examples/hc_CLBFs/ 아래에 .cpp가 있음)
 foreach(example ${hc_CLBFs})
   add_executable(${example} hc_CLBFs/${example}.cpp)
-  target_link_libraries(${example} Franka::Franka examples_common Eigen3::Eigen3 sigmoid_clbf)
+  target_link_libraries(${example} 
+  Franka::Franka 
+  examples_common 
+  Eigen3::Eigen3 
+  sigmoid_clbf
+  ref_gen
+)
 endforeach()
 
 target_link_libraries(joint_impedance_control Threads::Threads)
