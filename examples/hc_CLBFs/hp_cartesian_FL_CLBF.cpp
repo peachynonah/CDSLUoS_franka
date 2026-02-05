@@ -31,15 +31,13 @@ int main(int argc, char** argv) {
   // Compliance parameters
   const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
   
-  const double rotational_stiffness{1.0};
+  const double rotational_stiffness{120.0};
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
   stiffness.setZero();
   stiffness.topLeftCorner(3, 3) << translational_stiffness * Eigen::MatrixXd::Identity(3, 3);
   stiffness.bottomRightCorner(3, 3) << rotational_stiffness * Eigen::MatrixXd::Identity(3, 3);
   damping.setZero();
   damping.topLeftCorner(3, 3) << 2.0 * sqrt(translational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
-
-  // damping.topLeftCorner(3, 3) << 0.5 * Eigen::MatrixXd::Identity(3, 3);
   damping.bottomRightCorner(3, 3) << 2.0 * sqrt(rotational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
 
   // Initialize file_ hcpyon
@@ -57,6 +55,7 @@ int main(int argc, char** argv) {
   "vel_des_x vel_des_y vel_des_z "
   "acc_des_x acc_des_y acc_des_z "
   "pos_x pos_y pos_z "
+  "error_x error_y error_z error_rx error_ry error_rz "
   "vel_x vel_y vel_z\n"; // if output data of csv is modified, then this part should also be modified. 
 
   try {
@@ -66,7 +65,7 @@ int main(int argc, char** argv) {
 
         // First move the robot to a suitable joint configuration
     std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
-    MotionGenerator motion_generator(0.5, q_goal);
+    MotionGenerator motion_generator(0.2, q_goal);
     std::cout << "WARNING: This work will move the robot! " << std::endl
               << "Please make sure to have the user stop button at hand!" << std::endl
               << "Press Enter to move robot to initial joint configuration..." << std::endl;
@@ -247,7 +246,7 @@ int main(int argc, char** argv) {
       tau_d << jacobian.transpose() * (force_FL);
       // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
 
-      // File to store the states and force
+        // File to store the states and force
       for (int i = 0; i < 16; i++){myfile << robot_state.O_T_EE[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << force_FL[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << force_CLBF[i] << " ";}
@@ -255,6 +254,7 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_ddot_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << error[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << crt_vel_std[i] << " ";}
       myfile << '\n';
 
