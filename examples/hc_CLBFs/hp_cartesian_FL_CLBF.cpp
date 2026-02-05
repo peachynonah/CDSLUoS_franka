@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
   }
 
   // Compliance parameters
-  const double translational_stiffness{5.0}; // original stiffness: 50 ~ 150
+  const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
   
   const double rotational_stiffness{1.0};
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
@@ -37,10 +37,9 @@ int main(int argc, char** argv) {
   stiffness.topLeftCorner(3, 3) << translational_stiffness * Eigen::MatrixXd::Identity(3, 3);
   stiffness.bottomRightCorner(3, 3) << rotational_stiffness * Eigen::MatrixXd::Identity(3, 3);
   damping.setZero();
-  // damping.topLeftCorner(3, 3) << 0.10 * 2.0 * sqrt(translational_stiffness) *
-  //                                    Eigen::MatrixXd::Identity(3, 3);
+  damping.topLeftCorner(3, 3) << 2.0 * sqrt(translational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
 
-  damping.topLeftCorner(3, 3) << 0.5 * Eigen::MatrixXd::Identity(3, 3);
+  // damping.topLeftCorner(3, 3) << 0.5 * Eigen::MatrixXd::Identity(3, 3);
   damping.bottomRightCorner(3, 3) << 2.0 * sqrt(rotational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
 
   // Initialize file_ hcpyon
@@ -56,7 +55,9 @@ int main(int argc, char** argv) {
   "F_CLBF_x F_CLBF_y F_CLBF_z F_CLBF_rx F_CLBF_ry F_CLBF_rz "
   "pos_des_x pos_des_y pos_des_z "
   "vel_des_x vel_des_y vel_des_z "
-  "acc_des_x acc_des_y acc_des_z\n"; // if output data of csv is modified, then this part should also be modified. 
+  "acc_des_x acc_des_y acc_des_z "
+  "pos_x pos_y pos_z "
+  "vel_x vel_y vel_z\n"; // if output data of csv is modified, then this part should also be modified. 
 
   try {
     // connect to robot
@@ -146,38 +147,10 @@ int main(int argc, char** argv) {
       Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
       Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
       
-      // position tracking reference
-      // constexpr double kRadius = 0.3;
-      // double angle = M_PI / 4 * (1 - std::cos(M_PI / 5.0 * time));
-      // double dx_trk = kRadius * std::sin(angle);
-      // double dz_trk = kRadius * (std::cos(angle) - 1);
-
-      // position_d = init_position + Eigen::Vector3d(dx_trk, 0.0, dz_trk); //; 
-
       Eigen::Matrix<double, 6, 1> crt_vel_eig; crt_vel_eig << jacobian * dq;
 
       std::array<double, 6> crt_vel_std;
-      for (int i = 0; i < 6; ++i) {
-        crt_vel_std[i] = crt_vel_eig(i);
-      }
-
-      // //////////////////////////////////////////////////////reference generator_original place
-      // std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
-
-      // std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
-      // std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
-      
-      // std::array<double, 3> start_state_y = {init_position[1], 0.0, 0.0};
-      // std::array<double, 3> final_state_y = {init_position[1] + des_pos_mov[1], 0.0, 0.0};
-      
-      // std::array<double, 3> start_state_z = {init_position[2], 0.0, 0.0};
-      // std::array<double, 3> final_state_z = {init_position[2] + des_pos_mov[2], 0.0, 0.0};
-
-	    // ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
-	    // ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
-      // ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
-
-      ////////////////////////////////////////////////////
+      for (int i = 0; i < 6; ++i) {crt_vel_std[i] = crt_vel_eig(i);}
 
       std::array<double, 3> pos_des, pose_dot_des, pose_ddot_des;
 
@@ -203,13 +176,6 @@ int main(int argc, char** argv) {
       error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
       error_dot.tail(3) << crt_vel_eig.tail(3);
 
-      // compute error to desired equilibrium pose
-      // position error
-      // Eigen::Matrix<double, 6, 1> error, error_vel;
-      // error.head(3) << position - position_d;
-      
-      // error_vel << jacobian * dq;
-      
       // orientation error
       // "difference" quaternion
       if (orientation_d.coeffs().dot(orientation.coeffs()) < 0.0) {
@@ -266,8 +232,8 @@ int main(int argc, char** argv) {
           if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
       }
       
-      tau_d.setZero();
-      // tau_d << jacobian.transpose() * (force_FL);
+      // tau_d.setZero();
+      tau_d << jacobian.transpose() * (force_FL);
       // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
 
       // File to store the states and force
@@ -277,6 +243,8 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 3; i++) {myfile << pos_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_ddot_des[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << crt_vel_std[i] << " ";}
       myfile << '\n';
 
       std::array<double, 7> tau_d_array{};
