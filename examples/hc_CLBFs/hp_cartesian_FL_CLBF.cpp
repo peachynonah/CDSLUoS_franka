@@ -63,6 +63,17 @@ int main(int argc, char** argv) {
     // connect to robot
     franka::Robot robot(argv[1]);
     setDefaultBehavior(robot);
+
+        // First move the robot to a suitable joint configuration
+    std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
+    MotionGenerator motion_generator(0.5, q_goal);
+    std::cout << "WARNING: This work will move the robot! " << std::endl
+              << "Please make sure to have the user stop button at hand!" << std::endl
+              << "Press Enter to move robot to initial joint configuration..." << std::endl;
+    std::cin.ignore();
+    robot.control(motion_generator);
+    std::cout << "Finished moving to initial joint configuration." << std::endl;
+
     // load the kinematics and dynamics model
     franka::Model model = robot.loadModel();
     franka::RobotState initial_state = robot.readOnce();
@@ -253,11 +264,14 @@ int main(int argc, char** argv) {
     };
 
     // start real-time control loop
-    std::cout << "WARNING: Collision thresholds are set to high values. "
-              << "Make sure you have the user stop at hand!" << std::endl
+    std::cout << "WARNING: Make sure you have the user stop at hand!" << std::endl
               << "Mountain is mountain, river is river" << std::endl
               << "Bye Bye yeo-reo-boon I throw all all sok-bak of this world" << std::endl
               << "and go find the happiness" << std::endl
+              << "DOBBY IS FREE" << std::endl
+              << "If you reading this notion seriously, please don't enter to grad school" << std::endl
+              << "I'm serious" << std::endl
+              << "Father is now in the limit. Just go out and live alone" << std::endl 
               << "Press Enter to continue..." << std::endl;
 
     std::cin.ignore();
