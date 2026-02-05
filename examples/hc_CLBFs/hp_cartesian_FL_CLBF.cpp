@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
   // Compliance parameters
   const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
   
-  const double rotational_stiffness{120.0};
+  const double rotational_stiffness{10.0};
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
   stiffness.setZero();
   stiffness.topLeftCorner(3, 3) << translational_stiffness * Eigen::MatrixXd::Identity(3, 3);
@@ -56,7 +56,10 @@ int main(int argc, char** argv) {
   "acc_des_x acc_des_y acc_des_z "
   "pos_x pos_y pos_z "
   "error_x error_y error_z error_rx error_ry error_rz "
-  "vel_x vel_y vel_z\n"; // if output data of csv is modified, then this part should also be modified. 
+  "vel_x vel_y vel_z "
+  "bodyRPY_Y bodyRPY_P bodyRPY_R "
+  "bodyRPY_des_Y bodyRPY_des_P bodyRPY_des_R "
+  "error_RPY_Y error_RPY_P error_RPY_R\n"; // if output data of csv is modified, then this part should also be modified. 
 
   try {
     // connect to robot
@@ -65,7 +68,7 @@ int main(int argc, char** argv) {
 
         // First move the robot to a suitable joint configuration
     std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
-    MotionGenerator motion_generator(0.2, q_goal);
+    MotionGenerator motion_generator(0.15, q_goal);
     std::cout << "WARNING: This work will move the robot! " << std::endl
               << "Please make sure to have the user stop button at hand!" << std::endl
               << "Press Enter to move robot to initial joint configuration..." << std::endl;
@@ -81,8 +84,10 @@ int main(int argc, char** argv) {
     Eigen::Affine3d initial_transform(Eigen::Matrix4d::Map(initial_state.O_T_EE.data()));
     //Eigen::Vector3d position_d(initial_transform.translation());
     Eigen::Vector3d init_position(initial_transform.translation());//hcpyon
-    // Eigen::Vector3d position_d = init_position; //hcpyon
+    // Eigen::Vector3d position_d = init_position;
     Eigen::Quaterniond orientation_d(initial_transform.linear());
+
+    Eigen::Vector3d ori_ypr_d = initial_transform.linear().eulerAngles(2,1,0);
 
     // Set collision behavior: from Cartesian pose controller
     robot.setCollisionBehavior(
@@ -181,10 +186,19 @@ int main(int argc, char** argv) {
       pose_dot_des_eig << pose_dot_des[0], pose_dot_des[1], pose_dot_des[2];
       pose_ddot_des_eig << pose_ddot_des[0], pose_ddot_des[1], pose_ddot_des[2];
 
+      Eigen::Vector3d ori_ypr_des;
+      ori_ypr_des << ori_ypr_d[0], ori_ypr_d[1], ori_ypr_d[2];
+
+
+
       Eigen::Matrix<double, 6, 1> error, error_dot;
       error.head(3) << position - pos_des_eig;
       error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
       error_dot.tail(3) << crt_vel_eig.tail(3);
+
+      Eigen::Vector3d error_tempppp;
+      error_tempppp << body_ypr - ori_ypr_des;
+
 
       // orientation error
       // "difference" quaternion
@@ -256,6 +270,9 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << error[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << crt_vel_std[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << body_ypr[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << ori_ypr_des[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << error_tempppp[i] << " ";}
       myfile << '\n';
 
       std::array<double, 7> tau_d_array{};
