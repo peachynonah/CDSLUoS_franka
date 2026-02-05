@@ -21,9 +21,6 @@ ReferenceGenerator ref_crt_x;
 ReferenceGenerator ref_crt_y;
 ReferenceGenerator ref_crt_z;
 
-double time_ref_start_ = 0.0;
-double time_ref_fin_ = 10.0;
-
 int main(int argc, char** argv) {
   // Check whether the required arguments were passed
   if (argc != 3) {
@@ -88,6 +85,27 @@ int main(int argc, char** argv) {
     int rt_violation_count = 0;
     static const double dt_threshold = 0.002;  // 2 ms
 
+    //reference generator_predefined values
+    double time_ref_start_ = 0.0;
+    double time_ref_fin_ = 10.0;
+    constexpr double kRadius = 0.3;
+
+    std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
+
+    std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
+    std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
+    
+    std::array<double, 3> start_state_y = {init_position[1], 0.0, 0.0};
+    std::array<double, 3> final_state_y = {init_position[1] + des_pos_mov[1], 0.0, 0.0};
+    
+    std::array<double, 3> start_state_z = {init_position[2], 0.0, 0.0};
+    std::array<double, 3> final_state_z = {init_position[2] + des_pos_mov[2], 0.0, 0.0};
+
+    ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
+    ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
+    ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
+
+
     // define callback for the torque control loop
     std::function<franka::Torques(const franka::RobotState&, franka::Duration)>
         impedance_control_callback = [&](const franka::RobotState& robot_state,
@@ -129,7 +147,7 @@ int main(int argc, char** argv) {
       Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
       
       // position tracking reference
-      constexpr double kRadius = 0.3;
+      // constexpr double kRadius = 0.3;
       // double angle = M_PI / 4 * (1 - std::cos(M_PI / 5.0 * time));
       // double dx_trk = kRadius * std::sin(angle);
       // double dz_trk = kRadius * (std::cos(angle) - 1);
@@ -143,21 +161,23 @@ int main(int argc, char** argv) {
         crt_vel_std[i] = crt_vel_eig(i);
       }
 
-      //reference generator
-      std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
+      // //////////////////////////////////////////////////////reference generator_original place
+      // std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
 
-      std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
-      std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
+      // std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
+      // std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
       
-      std::array<double, 3> start_state_y = {init_position[1], 0.0, 0.0};
-      std::array<double, 3> final_state_y = {init_position[1] + des_pos_mov[1], 0.0, 0.0};
+      // std::array<double, 3> start_state_y = {init_position[1], 0.0, 0.0};
+      // std::array<double, 3> final_state_y = {init_position[1] + des_pos_mov[1], 0.0, 0.0};
       
-      std::array<double, 3> start_state_z = {init_position[2], 0.0, 0.0};
-      std::array<double, 3> final_state_z = {init_position[2] + des_pos_mov[2], 0.0, 0.0};
+      // std::array<double, 3> start_state_z = {init_position[2], 0.0, 0.0};
+      // std::array<double, 3> final_state_z = {init_position[2] + des_pos_mov[2], 0.0, 0.0};
 
-	    ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
-	    ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
-      ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
+	    // ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
+	    // ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
+      // ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
+
+      ////////////////////////////////////////////////////
 
       std::array<double, 3> pos_des, pose_dot_des, pose_ddot_des;
 
@@ -267,8 +287,11 @@ int main(int argc, char** argv) {
     // start real-time control loop
     std::cout << "WARNING: Collision thresholds are set to high values. "
               << "Make sure you have the user stop at hand!" << std::endl
-              << "After starting try to push the robot and see how it reacts." << std::endl
+              << "Mountain is mountain, river is river" << std::endl
+              << "Bye Bye yeo-reo-boon I throw all all sok-bak of this world" << std::endl
+              << "and go find the happiness" << std::endl
               << "Press Enter to continue..." << std::endl;
+
     std::cin.ignore();
     robot.control(impedance_control_callback);
 

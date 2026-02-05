@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # CSV 로드
-csv_path = "refgentest_2.txt"  # 파일 경로 수정
+csv_path = "refgentest_t2.txt"  # 파일 경로 수정
 df = pd.read_csv(csv_path, delim_whitespace=True)
 
 # 시간축 (없으면 index 사용)
