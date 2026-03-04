@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
   damping.topLeftCorner(3, 3) << 2.0 * sqrt(translational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
   damping.bottomRightCorner(3, 3) << 2.0 * sqrt(rotational_stiffness) * Eigen::MatrixXd::Identity(3, 3);
 
-  // Initialize file_ hcpyon
+  // Initialize file
   std::ofstream myfile;
   myfile.open(argv[2], std::ios::out);
   
@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
   "vel_x vel_y vel_z "
   "bodyRPY_Y bodyRPY_P bodyRPY_R "
   "bodyRPY_des_Y bodyRPY_des_P bodyRPY_des_R "
-  "error_RPY_Y error_RPY_P error_RPY_R\n"; // if output data of csv is modified, then this part should also be modified. 
+  "F_FL_ana_x F_FL_ana_y F_FL_ana_z F_FL_ana_rx F_FL_ana_ry F_FL_ana_rz\n"; // if output data of csv is modified, then this part should also be modified. 
 
   try {
     // connect to robot
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     // Eigen::Vector3d position_d = init_position;
     Eigen::Quaterniond orientation_d(initial_transform.linear());
 
-    Eigen::Vector3d ori_ypr_d = initial_transform.linear().eulerAngles(2,1,0);
+    Eigen::Vector3d init_ori_rpy = initial_transform.linear().eulerAngles(0,1,2);
 
     // Set collision behavior: from Cartesian pose controller
     robot.setCollisionBehavior(
@@ -155,8 +155,6 @@ int main(int argc, char** argv) {
       Eigen::Vector3d position(transform.translation());
       Eigen::Quaterniond orientation(transform.linear());
 
-      Eigen::Vector3d body_ypr = transform.linear().eulerAngles(2,1,0);
-
       //Jacobian pseudoinverse
       Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
       Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
@@ -186,19 +184,13 @@ int main(int argc, char** argv) {
       pose_dot_des_eig << pose_dot_des[0], pose_dot_des[1], pose_dot_des[2];
       pose_ddot_des_eig << pose_ddot_des[0], pose_ddot_des[1], pose_ddot_des[2];
 
-      Eigen::Vector3d ori_ypr_des;
-      ori_ypr_des << ori_ypr_d[0], ori_ypr_d[1], ori_ypr_d[2];
-
-
+      Eigen::Vector3d ori_rpy_des;
+      ori_rpy_des << init_ori_rpy[0], init_ori_rpy[1], init_ori_rpy[2];
 
       Eigen::Matrix<double, 6, 1> error, error_dot;
       error.head(3) << position - pos_des_eig;
       error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
       error_dot.tail(3) << crt_vel_eig.tail(3);
-
-      Eigen::Vector3d error_tempppp;
-      error_tempppp << body_ypr - ori_ypr_des;
-
 
       // orientation error
       // "difference" quaternion
@@ -215,7 +207,55 @@ int main(int argc, char** argv) {
       // compute control
       Eigen::VectorXd tau_task(7), tau_temp(7), tau_d(7), force_FL(6), force_CLBF(6), asafe(6);
 
-      //////// CLBF Params
+      force_FL << lambda * (-stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis;
+
+
+
+
+
+      // Part 2. ===== Analytic Jacobian (logging only, X-Y-Z) =====
+      Eigen::Vector3d body_rpy = transform.linear().eulerAngles(0,1,2);
+
+      double phi   = body_rpy[0];  // roll
+      double theta = body_rpy[1];  // pitch
+      double psi   = body_rpy[2];  // yaw
+
+      Eigen::Matrix3d T_inv;
+      T_inv <<1,  sin(phi)*tan(theta), -cos(phi)*tan(theta),
+              0,  cos(phi),             sin(phi),
+              0, -sin(phi)/cos(theta),  cos(phi)/cos(theta);
+
+      Eigen::Matrix<double, 6, 6> Ta_inv = Eigen::Matrix<double, 6, 6>::Identity();
+      Ta_inv.bottomRightCorner(3, 3) = T_inv;
+
+      Eigen::Matrix<double, 6, 7> jacobian_ana = Ta_inv * jacobian;
+
+      Eigen::Matrix<double, 6, 6> lambda_inv_ana = jacobian_ana * mass.inverse() * jacobian_ana.transpose();
+      Eigen::Matrix<double, 6, 6> lambda_ana     = lambda_inv_ana.inverse();
+      Eigen::Matrix<double, 7, 6> Jbar_ana       = mass.inverse() * jacobian_ana.transpose() * lambda_ana;
+
+      Eigen::Matrix<double, 6, 1> crt_vel_ana   = jacobian_ana * dq;
+
+      Eigen::Matrix<double, 6, 1> error_ana, error_dot_ana;
+      error_ana.head(3)     << error.head(3);            // position error 동일
+      error_ana.tail(3)     << body_rpy - ori_rpy_des;   // X-Y-Z Euler angle error
+
+      error_dot_ana.head(3) << crt_vel_ana.head(3) - pose_dot_des_eig;
+      error_dot_ana.tail(3) << crt_vel_ana.tail(3);      // desired Euler rate = 0
+
+      Eigen::Matrix<double, 6, 1> force_FL_ana;
+      force_FL_ana << lambda_ana * (-stiffness * error_ana - damping * error_dot_ana)
+                    + Jbar_ana.transpose() * coriolis;
+
+      Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * force_FL_ana;
+      // ===== End Analytic (logging only) =====
+
+
+
+
+
+
+      // Part 3. CLBF add-on input ===== 
       Eigen::Matrix<double, 2, 2> Q_matrix_z, P_matrix_z;
       Q_matrix_z << 1.0, 0.3,
                     0.3, 1.0; 
@@ -236,7 +276,6 @@ int main(int argc, char** argv) {
         std::cout << "=== MODEL VALUES ===" << std::endl;
         std::cout << "Time : "; std::cout << time << " "; std::cout << std::endl;
         std::cout << "Z axis error : "; std::cout << error(2) << " "; std::cout << std::endl;
-        std::cout << "body_ypr [rad] = " << body_ypr.transpose() << std::endl;
         print_time = 0.0;
       }
       
@@ -244,8 +283,6 @@ int main(int argc, char** argv) {
       double asafe_z = getasafe(Q_matrix_z, P_matrix_z, state_error_z, clbf_slope_l_z, unsafe_d_z, clbf_margin_delta_z, clbf_weight_theta_z, cart_pos_current_z);
       asafe.setZero();     
       asafe(2) = asafe_z;
-      // tau_temp << mass * Jbar * (-stiffness * error + asafe);
-      force_FL << lambda * (-stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis;
       force_CLBF << lambda * asafe;
 
       // Clip force_CLBF
@@ -256,11 +293,18 @@ int main(int argc, char** argv) {
           if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
       }
       
-      // tau_d.setZero();
-      tau_d << jacobian.transpose() * (force_FL);
-      // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
 
-        // File to store the states and force
+      // Part 4. ==== final tau calculation
+      // tau_d.setZero();
+      
+      // tau_d << jacobian.transpose() * (force_FL);
+      
+      // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
+      
+      tau_d << tau_ana;
+
+
+      // File to store the states and force
       for (int i = 0; i < 16; i++){myfile << robot_state.O_T_EE[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << force_FL[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << force_CLBF[i] << " ";}
@@ -270,9 +314,9 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << error[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << crt_vel_std[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << body_ypr[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << ori_ypr_des[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << error_tempppp[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << body_rpy[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << ori_rpy_des[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << force_FL_ana[i] << " ";}
       myfile << '\n';
 
       std::array<double, 7> tau_d_array{};
@@ -280,13 +324,15 @@ int main(int argc, char** argv) {
       return tau_d_array;
     };
 
+
     // start real-time control loop
     std::cout << "WARNING: Make sure you have the user stop at hand!" << std::endl
               << "Mountain is mountain, river is river" << std::endl
-              << "Bye Bye yeo-reo-boon I throw all all sok-bak of this world" << std::endl
-              << "and go find the happiness" << std::endl
+              << "Bye Bye yeo-reo-boon I throw all sok-bak of this world" << std::endl
+              << "and go find for the happiness" << std::endl
               << "DOBBY IS FREE" << std::endl
               << "If you reading this notion seriously, please don't enter to grad school" << std::endl
+              << "especially, control engineering" << std::endl
               << "I'm serious" << std::endl
               << "Father is now in the limit. Just go out and live alone" << std::endl 
               << "Press Enter to continue..." << std::endl;
