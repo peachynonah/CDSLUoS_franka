@@ -29,9 +29,10 @@ int main(int argc, char** argv) {
   }
 
   // Compliance parameters
-  const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
-  
-  const double rotational_stiffness{10.0};
+  const double translational_stiffness{150.0}; // original stiffness: 50 ~ 150
+  const double rotational_stiffness{150.0};
+
+
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
   stiffness.setZero();
   stiffness.topLeftCorner(3, 3) << translational_stiffness * Eigen::MatrixXd::Identity(3, 3);
@@ -44,22 +45,29 @@ int main(int argc, char** argv) {
   std::ofstream myfile;
   myfile.open(argv[2], std::ios::out);
   
+  // File header indices
   myfile <<
   "O_T_EE_00 O_T_EE_01 O_T_EE_02 O_T_EE_03 "
   "O_T_EE_04 O_T_EE_05 O_T_EE_06 O_T_EE_07 "
   "O_T_EE_08 O_T_EE_09 O_T_EE_10 O_T_EE_11 "
   "O_T_EE_12 O_T_EE_13 O_T_EE_14 O_T_EE_15 "
+
   "F_FL_x F_FL_y F_FL_z F_FL_rx F_FL_ry F_FL_rz "
+  "F_FL_ana_x F_FL_ana_y F_FL_ana_z F_FL_ana_rx F_FL_ana_ry F_FL_ana_rz "
+  
   "F_CLBF_x F_CLBF_y F_CLBF_z F_CLBF_rx F_CLBF_ry F_CLBF_rz "
+  
   "pos_des_x pos_des_y pos_des_z "
   "vel_des_x vel_des_y vel_des_z "
   "acc_des_x acc_des_y acc_des_z "
-  "pos_x pos_y pos_z "
-  "error_x error_y error_z error_rx error_ry error_rz "
-  "vel_x vel_y vel_z "
-  "bodyRPY_Y bodyRPY_P bodyRPY_R "
-  "bodyRPY_des_Y bodyRPY_des_P bodyRPY_des_R "
-  "F_FL_ana_x F_FL_ana_y F_FL_ana_z F_FL_ana_rx F_FL_ana_ry F_FL_ana_rz\n"; // if output data of csv is modified, then this part should also be modified. 
+  
+  "pos_x pos_y pos_z pos_rx pos_ry pos_rz "
+  "vel_x vel_y vel_z vel_rx vel_ry vel_rz "
+
+  "bodyRPY_des_R bodyRPY_des_P bodyRPY_des_Y "
+  "bodyRPY_R bodyRPY_P bodyRPY_Y "
+  
+  "\n"; // if output data of csv is modified, then this part should also be modified. 
 
   try {
     // connect to robot
@@ -193,11 +201,9 @@ int main(int argc, char** argv) {
       error_dot.tail(3) << crt_vel_eig.tail(3);
 
       // orientation error
-      // "difference" quaternion
       if (orientation_d.coeffs().dot(orientation.coeffs()) < 0.0) {
         orientation.coeffs() << -orientation.coeffs();
       }
-
       // "difference" quaternion
       Eigen::Quaterniond error_quaternion(orientation.inverse() * orientation_d);
       error.tail(3) << error_quaternion.x(), error_quaternion.y(), error_quaternion.z();
@@ -213,7 +219,7 @@ int main(int argc, char** argv) {
 
 
 
-      // Part 2. ===== Analytic Jacobian (logging only, X-Y-Z) =====
+      // Part 2. ===== Analytic Jacobian (X-Y-Z) =====
       Eigen::Vector3d body_rpy = transform.linear().eulerAngles(0,1,2);
 
       double phi   = body_rpy[0];  // roll
@@ -248,14 +254,19 @@ int main(int argc, char** argv) {
                     + Jbar_ana.transpose() * coriolis;
 
       Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * force_FL_ana;
-      // ===== End Analytic (logging only) =====
+      // ===== End Analytic =====
 
 
 
 
 
 
-      // Part 3. CLBF add-on input ===== 
+      // === Part 3. Safety-related forces ===
+
+      // == Part 3-1. Virtual Disturbance generation
+
+
+      // == Part 3-2. CLBF add-on input ==
       Eigen::Matrix<double, 2, 2> Q_matrix_z, P_matrix_z;
       Q_matrix_z << 1.0, 0.3,
                     0.3, 1.0; 
@@ -269,7 +280,7 @@ int main(int argc, char** argv) {
       double clbf_margin_delta_z = 0.1; double clbf_weight_theta_z = 5.0;
       double cart_pos_current_z = error(2);
       
-     // -- print
+     // print
       print_time += duration.toSec();
 
       if (print_time > 0.5) {
@@ -296,27 +307,31 @@ int main(int argc, char** argv) {
 
       // Part 4. ==== final tau calculation
       // tau_d.setZero();
-      
       // tau_d << jacobian.transpose() * (force_FL);
-      
       // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
-      
       tau_d << tau_ana;
 
 
-      // File to store the states and force
+
+
+    // Part 5. === File to store the states and force
       for (int i = 0; i < 16; i++){myfile << robot_state.O_T_EE[i] << " ";}
+
       for (int i = 0; i < 6; i++) {myfile << force_FL[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << force_FL_ana[i] << " ";}
+      
       for (int i = 0; i < 6; i++) {myfile << force_CLBF[i] << " ";}
+      
       for (int i = 0; i < 3; i++) {myfile << pos_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_ddot_des[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
-      for (int i = 0; i < 6; i++) {myfile << error[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << crt_vel_std[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << body_rpy[i] << " ";}
+      
+      for (int i = 0; i < 6; i++) {myfile << position[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << crt_vel_std[i] << " ";}
+      
       for (int i = 0; i < 3; i++) {myfile << ori_rpy_des[i] << " ";}
-      for (int i = 0; i < 6; i++) {myfile << force_FL_ana[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << body_rpy[i] << " ";}
+      
       myfile << '\n';
 
       std::array<double, 7> tau_d_array{};
@@ -325,7 +340,10 @@ int main(int argc, char** argv) {
     };
 
 
-    // start real-time control loop
+
+
+
+    // Part 6. === start real-time control loop
     std::cout << "WARNING: Make sure you have the user stop at hand!" << std::endl
               << "Mountain is mountain, river is river" << std::endl
               << "Bye Bye yeo-reo-boon I throw all sok-bak of this world" << std::endl
