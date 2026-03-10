@@ -29,8 +29,8 @@ int main(int argc, char** argv) {
   }
 
   // Compliance parameters
-  const double translational_stiffness{150.0}; // original stiffness: 50 ~ 150
-  const double rotational_stiffness{150.0};
+  const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
+  const double rotational_stiffness{50.0};
 
 
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   "vel_des_x vel_des_y vel_des_z "
   "acc_des_x acc_des_y acc_des_z "
   
-  "pos_x pos_y pos_z pos_rx pos_ry pos_rz "
+  "pos_x pos_y pos_z "
   "vel_x vel_y vel_z vel_rx vel_ry vel_rz "
 
   "bodyRPY_des_R bodyRPY_des_P bodyRPY_des_Y "
@@ -75,7 +75,11 @@ int main(int argc, char** argv) {
     setDefaultBehavior(robot);
 
         // First move the robot to a suitable joint configuration
-    std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
+    // std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
+    // std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, 0}};
+    // std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_4, M_PI_4}};
+    std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, -M_PI_4, M_PI_2, M_PI_4}};
+
     MotionGenerator motion_generator(0.15, q_goal);
     std::cout << "WARNING: This work will move the robot! " << std::endl
               << "Please make sure to have the user stop button at hand!" << std::endl
@@ -129,7 +133,6 @@ int main(int argc, char** argv) {
     ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
     ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
 
-
     // define callback for the torque control loop
     std::function<franka::Torques(const franka::RobotState&, franka::Duration)>
         impedance_control_callback = [&](const franka::RobotState& robot_state,
@@ -163,12 +166,13 @@ int main(int argc, char** argv) {
       Eigen::Vector3d position(transform.translation());
       Eigen::Quaterniond orientation(transform.linear());
 
-      //Jacobian pseudoinverse
-      Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
-      Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
-      Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
+      // //Jacobian pseudoinverse
+      // Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
+      // Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
+      // Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
       
-      Eigen::Matrix<double, 6, 1> crt_vel_eig; crt_vel_eig << jacobian * dq;
+      Eigen::Matrix<double, 6, 1> crt_vel_eig = jacobian * dq; 
+      // crt_vel_eig << jacobian * dq;
 
       std::array<double, 6> crt_vel_std;
       for (int i = 0; i < 6; ++i) {crt_vel_std[i] = crt_vel_eig(i);}
@@ -200,6 +204,11 @@ int main(int argc, char** argv) {
       error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
       error_dot.tail(3) << crt_vel_eig.tail(3);
 
+      //dev_temp
+      Eigen::Matrix<double, 6, 1> acc_des;
+      acc_des.head(3) << pose_ddot_des_eig;
+      acc_des.tail(3).setZero();
+
       // orientation error
       if (orientation_d.coeffs().dot(orientation.coeffs()) < 0.0) {
         orientation.coeffs() << -orientation.coeffs();
@@ -210,14 +219,16 @@ int main(int argc, char** argv) {
       // Transform to base frame
       error.tail(3) << -transform.linear() * error.tail(3);
 
+
+      //Geometric Jacobian pseudoinverse
+      Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
+      Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
+      Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
+
       // compute control
       Eigen::VectorXd tau_task(7), tau_temp(7), tau_d(7), force_FL(6), force_CLBF(6), asafe(6);
 
       force_FL << lambda * (-stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis;
-
-
-
-
 
       // Part 2. ===== Analytic Jacobian (X-Y-Z) =====
       Eigen::Vector3d body_rpy = transform.linear().eulerAngles(0,1,2);
@@ -250,13 +261,11 @@ int main(int argc, char** argv) {
       error_dot_ana.tail(3) << crt_vel_ana.tail(3);      // desired Euler rate = 0
 
       Eigen::Matrix<double, 6, 1> force_FL_ana;
-      force_FL_ana << lambda_ana * (-stiffness * error_ana - damping * error_dot_ana)
+      force_FL_ana << lambda_ana * (acc_des - stiffness * error_ana - damping * error_dot_ana)
                     + Jbar_ana.transpose() * coriolis;
 
-      Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * force_FL_ana;
+      // Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * force_FL_ana;
       // ===== End Analytic =====
-
-
 
 
 
@@ -264,6 +273,11 @@ int main(int argc, char** argv) {
       // === Part 3. Safety-related forces ===
 
       // == Part 3-1. Virtual Disturbance generation
+      Eigen::Matrix<double, 6, 1> force_virt_dstrb;
+      force_virt_dstrb.setZero();
+
+      double amp_rx = 0.05; double freq_rx = 0.5;
+      force_virt_dstrb(3) = amp_rx * std::sin(2.0 * M_PI * freq_rx * time); 
 
 
       // == Part 3-2. CLBF add-on input ==
@@ -304,11 +318,14 @@ int main(int argc, char** argv) {
           if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
       }
       
-
       // Part 4. ==== final tau calculation
       // tau_d.setZero();
       // tau_d << jacobian.transpose() * (force_FL);
       // tau_d << jacobian.transpose() * (force_FL + force_CLBF);
+
+      // Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * (force_FL_ana + force_virt_dstrb);
+      Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * (force_FL_ana);
+
       tau_d << tau_ana;
 
 
@@ -326,7 +343,7 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_ddot_des[i] << " ";}
       
-      for (int i = 0; i < 6; i++) {myfile << position[i] << " ";}
+      for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
       for (int i = 0; i < 6; i++) {myfile << crt_vel_std[i] << " ";}
       
       for (int i = 0; i < 3; i++) {myfile << ori_rpy_des[i] << " ";}
