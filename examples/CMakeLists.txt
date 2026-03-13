@@ -59,8 +59,6 @@ set(ys_QPCs
   )
 
 set(hc_CLBFs
-  my_custom_controller_hp
-  hp_custom_cartesian_FL
   hp_cartesian_FL_CLBF
   )
 
