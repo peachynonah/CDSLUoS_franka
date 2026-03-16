@@ -32,7 +32,6 @@ int main(int argc, char** argv) {
   const double translational_stiffness{50.0}; // original stiffness: 50 ~ 150
   const double rotational_stiffness{10.0};
 
-
   Eigen::MatrixXd stiffness(6, 6), damping(6, 6);
   stiffness.setZero();
   stiffness.topLeftCorner(3, 3) << translational_stiffness * Eigen::MatrixXd::Identity(3, 3);
@@ -45,35 +44,33 @@ int main(int argc, char** argv) {
   std::ofstream myfile;
   myfile.open(argv[2], std::ios::out);
   
-  // File header indices
+  // (Upcoming) Part 5. === File to store the states and force
+  // Part 5-1. File header indices
   myfile <<
   "O_T_EE_00 O_T_EE_01 O_T_EE_02 O_T_EE_03 "
   "O_T_EE_04 O_T_EE_05 O_T_EE_06 O_T_EE_07 "
   "O_T_EE_08 O_T_EE_09 O_T_EE_10 O_T_EE_11 "
   "O_T_EE_12 O_T_EE_13 O_T_EE_14 O_T_EE_15 "
 
-  "F_FL_ana_x F_FL_ana_y F_FL_ana_z F_FL_ana_rx F_FL_ana_ry F_FL_ana_rz "
-  
-  "pos_des_x pos_des_y pos_des_z "
-  "vel_des_x vel_des_y vel_des_z "
-  
-  "pos_x pos_y pos_z "
-  
-  "bodyRPY_des_R bodyRPY_des_P bodyRPY_des_Y "
-  "bodyRPY_R bodyRPY_P bodyRPY_Y "
+  "force_FL_x force_FL_y force_FL_z force_FL_rx force_FL_ry force_FL_rz "
 
-  "error_ana_x error_ana_y error_ana_z error_ana_rx error_ana_ry error_ana_rz "
-    
-  "\n"; // if output data of csv is modified, then this part should also be modified. 
+  "pos_des_x pos_des_y pos_des_z "
+  "pos_dot_des_x pos_dot_des_y pos_dot_des_z "
+
+  "pos_current_x pos_current_y pos_current_z "
+  
+  "\n";
+  // Part 5-1 ENDS
+
 
   try {
     // connect to robot
     franka::Robot robot(argv[1]);
     setDefaultBehavior(robot);
 
-        // First move the robot to a suitable joint configuration
-    // std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
-    std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, -M_PI_4, M_PI_2, M_PI_4}};
+    // First move the robot to a suitable joint configuration
+    std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4}};
+    // std::array<double, 7> q_goal = {{0, -M_PI_4, 0, -3 * M_PI_4, -M_PI_4, M_PI_2, M_PI_4}};
 
     MotionGenerator motion_generator(0.15, q_goal);
     std::cout << "WARNING: This work will move the robot! " << std::endl
@@ -87,13 +84,9 @@ int main(int argc, char** argv) {
     franka::Model model = robot.loadModel();
     franka::RobotState initial_state = robot.readOnce();
 
-    // equilibrium point is the initial position
     Eigen::Affine3d initial_transform(Eigen::Matrix4d::Map(initial_state.O_T_EE.data()));
     Eigen::Vector3d init_position(initial_transform.translation());
-    // Eigen::Quaterniond orientation_d(initial_transform.linear());
-    Eigen::Vector3d init_ori_XYZ = initial_transform.linear().eulerAngles(0,1,2);
-    //debugMar11
-    Eigen::Vector3d init_ori_ZYX = initial_transform.linear().eulerAngles(2,1,0);
+    Eigen::Quaterniond orientation_des(initial_transform.linear());
 
     // Set collision behavior: from Cartesian pose controller
     robot.setCollisionBehavior(
@@ -104,16 +97,16 @@ int main(int argc, char** argv) {
     
     double time = 0.0; 
     static double print_time = 0.0; 
-    // int rt_violation_count = 0;
-    // static const double dt_threshold = 0.002;  // 2 ms
 
-    //reference generator_predefined values
+    //== Part 1. reference generator: 
+    
+    // == Part 1-1. predefined values
     double time_ref_start_ = 0.0;
     double time_ref_fin_ = 10.0;
     constexpr double kRadius = 0.3;
 
-    // std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
-    std::array<double, 3> des_pos_mov = {0.2, 0, 0};
+    std::array<double, 3> des_pos_mov = {kRadius, 0, -kRadius};
+    // std::array<double, 3> des_pos_mov = {0.2, 0, 0};
 
     std::array<double, 3> start_state_x = {init_position[0], 0.0, 0.0};
     std::array<double, 3> final_state_x = {init_position[0] + des_pos_mov[0], 0.0, 0.0};
@@ -127,6 +120,8 @@ int main(int argc, char** argv) {
     ref_crt_x.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_x, final_state_x);
     ref_crt_y.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_y, final_state_y);
     ref_crt_z.computeAlphaCoeffs(time_ref_start_, time_ref_fin_, start_state_z, final_state_z);
+    // ====== Part 1-1 ENDS
+
 
     // define callback for the torque control loop
     std::function<franka::Torques(const franka::RobotState&, franka::Duration)>
@@ -134,13 +129,6 @@ int main(int argc, char** argv) {
                                          franka::Duration duration) -> franka::Torques {
       
       time += duration.toSec();
-
-      // // ---- RT violation check ----
-      // if (duration.toSec() > dt_threshold) {
-      //   rt_violation_count++;
-      //   std::cout << "[RT VIOLATION] Δt = " << duration.toSec()
-      //             << " s | total count: " << rt_violation_count << std::endl;
-      // }
 
       // get state variables
       std::array<double, 7> coriolis_array = model.coriolis(robot_state);
@@ -166,7 +154,7 @@ int main(int argc, char** argv) {
       std::array<double, 6> crt_vel_std;
       for (int i = 0; i < 6; ++i) {crt_vel_std[i] = crt_vel_eig(i);}
 
-      // == Part 1. Reference generation
+      // == Part 1-2. Reference generation
       std::array<double, 3> pos_des, pose_dot_des, pose_ddot_des;
 
       pos_des[0] = ref_crt_x.get_position(time, position[0]);
@@ -185,65 +173,48 @@ int main(int argc, char** argv) {
       pos_des_eig << pos_des[0], pos_des[1], pos_des[2];
       pose_dot_des_eig << pose_dot_des[0], pose_dot_des[1], pose_dot_des[2];
       pose_ddot_des_eig << pose_ddot_des[0], pose_ddot_des[1], pose_ddot_des[2];
+      // == Part 1-2 ENDS
 
-      Eigen::Vector3d ori_XYZ_des;
-      ori_XYZ_des << init_ori_XYZ[0], init_ori_XYZ[1], init_ori_XYZ[2];
-
-      Eigen::Vector3d ori_ZYX_des;
-      ori_ZYX_des << init_ori_ZYX[0], init_ori_ZYX[1], init_ori_ZYX[2];
-
-      // Eigen::Matrix<double, 6, 1> error, error_dot;
-      // error.head(3) << position - pos_des_eig;
-      // error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
-      // error_dot.tail(3) << crt_vel_eig.tail(3);
+      // === Part 2. Errors and Cartesian Model Informations
+        // == Part 2-1. Using Quaternion error in Orientation 
+      Eigen::Matrix<double, 6, 1> error, error_dot;
+      error.head(3) << position - pos_des_eig;
+      error_dot.head(3) << crt_vel_eig.head(3) - pose_dot_des_eig;
+      error_dot.tail(3) << crt_vel_eig.tail(3);
 
       Eigen::Matrix<double, 6, 1> acc_des;
       acc_des.head(3) << pose_ddot_des_eig;
       acc_des.tail(3).setZero();
 
       // orientation error
-      // if (orientation_d.coeffs().dot(orientation.coeffs()) < 0.0) {
-      //   orientation.coeffs() << -orientation.coeffs();
-      // }
-      // // "difference" quaternion
-      // Eigen::Quaterniond error_quaternion(orientation.inverse() * orientation_d);
-      // error.tail(3) << error_quaternion.x(), error_quaternion.y(), error_quaternion.z();
-      // // Transform to base frame
-      // error.tail(3) << -transform.linear() * error.tail(3);
+      if (orientation_des.coeffs().dot(orientation.coeffs()) < 0.0) {
+        orientation.coeffs() << -orientation.coeffs();
+      }
+      // "difference" quaternion
+      Eigen::Quaterniond error_quaternion(orientation.inverse() * orientation_des);
+      error.tail(3) << error_quaternion.x(), error_quaternion.y(), error_quaternion.z();
+      // Transform to base frame
+      error.tail(3) << -transform.linear() * error.tail(3);
 
-      //Geometric Jacobian pseudoinverse
-      // Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
-      // Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
-      // Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
+      // Geometric Jacobian pseudoinverse
+      Eigen::Matrix<double, 6, 6> lambda_inv = jacobian * mass.inverse() * jacobian.transpose();
+      Eigen::Matrix<double, 6, 6> lambda = lambda_inv.inverse();
+      Eigen::Matrix<double, 7, 6> Jbar = mass.inverse() * jacobian.transpose() * lambda;
 
       // compute control
-      // Eigen::VectorXd force_FL(6);
+      Eigen::VectorXd force_FL(6);
 
-      // force_FL << lambda * (-stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis;
+      force_FL << lambda * (acc_des - stiffness * error - damping * error_dot) + Jbar.transpose() * coriolis; // + lambda * Jdot * qdot;
+      // === Part 2-1 ENDS
 
 
-      ///////////////////// ****************** == Part 2. Analytic Jacobian ******************  ////////////
-      
-      //=== Part 2-1. Trial 1: Analytic Jacobian (X-Y-Z)
-      // Eigen::Vector3d base_XYZ = transform.linear().eulerAngles(0,1,2);
 
-      // double phi   = base_XYZ[0];  
-      // double theta = base_XYZ[1];  
-      // double psi   = base_XYZ[2]; 
-
-      // Eigen::Matrix3d T_inv;
-      // T_inv <<1,  sin(phi)*tan(theta),  cos(phi)*tan(theta),
-      //         0,  cos(phi),            -sin(phi),
-      //         0,  sin(phi)/cos(theta),  cos(phi)/cos(theta);
-
-      // Eigen::Matrix<double, 6, 6> Ta_inv = Eigen::Matrix<double, 6, 6>::Identity();
-      // Ta_inv.bottomRightCorner(3, 3) = T_inv;
-
-      // Eigen::Matrix<double, 6, 7> jacobian_ana = Ta_inv * jacobian;
-      // // == Original Part 2. wrap 
-
-      // == debugMar11
       // == Part 2-2. Trial 2: Analytic Jacobian (Z-Y-X)
+      Eigen::Vector3d init_ori_ZYX = initial_transform.linear().eulerAngles(2,1,0);
+      
+      Eigen::Vector3d ori_ZYX_des;
+      ori_ZYX_des << init_ori_ZYX[0], init_ori_ZYX[1], init_ori_ZYX[2];
+
       Eigen::Vector3d base_ZYX = transform.linear().eulerAngles(2, 1, 0);
       double alpha = base_ZYX[0];  // yaw   (Z)
       double beta  = base_ZYX[1];  // pitch (Y)
@@ -287,20 +258,20 @@ int main(int argc, char** argv) {
       Eigen::Matrix<double, 6, 1> force_FL_ana;
       force_FL_ana << lambda_ana * (acc_des - stiffness * error_ana - damping * error_dot_ana)
                     + Jbar_ana.transpose() * coriolis; // + lambda_ana * Jdot * qdot;
-      // ===== End Analytic =====
+      // Part 2-2 ENDS
 
-      // === Part 3. Safety-related forces ===
 
-      // == Part 3-1. Virtual Disturbance generation
-      Eigen::Matrix<double, 6, 1> force_virt_dstrb;
-      force_virt_dstrb.setZero();
+      // // === Part 3. Safety-related forces ===
 
-      double amp_rx = 0.05; double freq_rx = 0.5;
-      force_virt_dstrb(3) = amp_rx * std::sin(2.0 * M_PI * freq_rx * time); 
+      // // == Part 3-1. Virtual Disturbance generation
+      // Eigen::Matrix<double, 6, 1> force_virt_dstrb;
+      // force_virt_dstrb.setZero();
 
+      // double amp_rx = 0.05; double freq_rx = 0.5;
+      // force_virt_dstrb(3) = amp_rx * std::sin(2.0 * M_PI * freq_rx * time); 
+      // // == Part 3-1 ENDS
 
     //   // == Part 3-2. CLBF add-on input ==
-
     //   Eigen::VectorXd force_CLBF(6), asafe(6);
     //   Eigen::Matrix<double, 2, 2> Q_matrix_z, P_matrix_z;
     //   Q_matrix_z << 1.0, 0.3,
@@ -333,37 +304,37 @@ int main(int argc, char** argv) {
     //       if (force_CLBF(i) < -max_val) force_CLBF(i) = -max_val;
     //   }
       
+    // // == Part 3-2 ENDS
+
     // Part 4. ==== final tau calculation
-      // Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * (force_FL_ana + force_virt_dstrb);
-      Eigen::Matrix<double, 7, 1> tau_ana = jacobian_ana.transpose() * (force_FL_ana);
+      // Eigen::Matrix<double, 7, 1> tau_ana = jacobian.transpose() * (force_FL + force_virt_dstrb + force_CLBF);
+      Eigen::Matrix<double, 7, 1> tau_FL_with_dist = jacobian.transpose() * (force_FL);
 
       Eigen::VectorXd tau_d(7);
-      tau_d << tau_ana;
+      tau_d << tau_FL_with_dist;
+    // // == Part 4 ENDS
 
-    // Part 5. === File to store the states and force
+
+    // Part 5-2. === File to store the states and force
       for (int i = 0; i < 16; i++){myfile << robot_state.O_T_EE[i] << " ";}
 
-      for (int i = 0; i < 6; i++) {myfile << force_FL_ana[i] << " ";}
+      for (int i = 0; i < 6; i++) {myfile << force_FL[i] << " ";}
             
       for (int i = 0; i < 3; i++) {myfile << pos_des[i] << " ";}
       for (int i = 0; i < 3; i++) {myfile << pose_dot_des[i] << " ";}
       
       for (int i = 0; i < 3; i++) {myfile << position[i] << " ";}
       
-      // for (int i = 0; i < 3; i++) {myfile << ori_XYZ_des[i] << " ";}
-      // for (int i = 0; i < 3; i++) {myfile << base_XYZ[i] << " ";}
-
-      for (int i = 0; i < 3; i++) {myfile << ori_ZYX_des[i] << " ";}
-      for (int i = 0; i < 3; i++) {myfile << base_ZYX[i] << " ";}
-      
-      for (int i = 0; i < 6; i++) {myfile << error_ana[i] << " ";}
-      
       myfile << '\n';
+
+    // == Part 5-2 ENDS
 
       std::array<double, 7> tau_d_array{};
       Eigen::VectorXd::Map(&tau_d_array[0], 7) = tau_d;
       return tau_d_array;
     };
+    
+
 
     // Part 6. === start real-time control loop
     std::cout << "WARNING: Make sure you have the user stop at hand!" << std::endl
@@ -376,6 +347,8 @@ int main(int argc, char** argv) {
     // print exception
     std::cout << ex.what() << std::endl;
   }
+  
+  // == Part 6 ENDS
 
   return 0;
 }
